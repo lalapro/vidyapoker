@@ -43,7 +43,7 @@ export default class BlitzJoin extends React.Component {
       friendScore: 0,
       isMounted: false,
       cardsLeft: 0,
-      timer: 5,
+      timer: 60,
       status: null,
       endBlitzModal: false,
       bestHand: undefined
@@ -410,7 +410,11 @@ export default class BlitzJoin extends React.Component {
   }
 
   endDuel() {
-    this.props.navigation.navigate('Classic');
+    this.setState({
+      isMounted: false
+    }, () => {
+      this.props.navigation.navigate('Classic');
+    })
   }
 
   render() {

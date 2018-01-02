@@ -16,6 +16,7 @@ export default class ChallengeModal extends React.Component {
       waitingForResponse: false,
       appState: false,
       rejected: false,
+      accepted: false,
       countDown: 5
     }
     this.startCountdown = this.startCountdown.bind(this);
@@ -23,7 +24,7 @@ export default class ChallengeModal extends React.Component {
   }
 
   async componentWillMount() {
-    this.grabOnlineFriends(this.props.fbId);
+    // this.grabOnlineFriends(this.props.fbId);
     await Font.loadAsync({
       'arcade': require('../assets/fonts/arcadeclassic.regular.ttf'),
     });
@@ -34,48 +35,36 @@ export default class ChallengeModal extends React.Component {
     })
   }
 
-  grabOnlineFriends(fbId) {
-    database.fbFriends.child(fbId).child('friends').once('value', snap => {
-      let friends = snap.val()[0];
-      friends.forEach((friend, i) => {
-        database.gameRooms.child(friend.id).child('online').on('value', snap => {
-          if (this.state.isMounted && !this.state.accepted) {
-            if (snap.val() === true) {
-              this.setState({
-                friendsOnline: [...this.state.friendsOnline, friend]
-              })
-            } else {
-
-              for(let i = 0; i < this.state.friendsOnline.length; i++) {
-                if (this.state.friendsOnline[i].id === friend.id) {
-                  let spliceIndex = i;
-                  this.state.friendsOnline.splice(i, 1);
-                  this.setState({friendsOnline: this.state.friendsOnline})
-                  break;
-                }
-              }
-            }
-          }
-        })
-      })
-    })
+  componentDidMount() {
+    // this.startCountdown();
+    this.getFriendInfo(this.props.friendId);
+    this.listenForAccept(this.props.friendId);
+    this.listenForCancel(this.props.friendId);
   }
 
-  challengeFriend(friend) {
-    let friendId = friend.id;
-    this.setState({friendId})
-    database.gameRooms.child(friendId).child('online').once('value', snap => {
-      if(snap.val() === true) {
-        database.gameRooms.child(friendId).child('requesting').set(this.props.fbId)
+  listenForAccept(friendId) {
+    database.gameRooms.child(friendId).on('value', snap => {
+      let friendResponse = snap.val();
+      if (friendResponse.accepted === true && this.state.isMounted && this.state.accepted === false) {
+        this.setState({accepted: true}, () => {
+          this.startCountdown();
+        });
       }
-    }).then(res => {
-      this.getFriendInfo(friendId);
-      this.listenForResponse(friendId)
     })
   }
+
+  listenForCancel(friendId) {
+    database.gameRooms.child(friendId).on('value', snap => {
+      let friendResponse = snap.val();
+      if (friendResponse.requesting === false && this.state.isMounted) {
+        this.clearCountdown();
+        this.props.close();
+      }
+    })
+  }
+
 
   tick() {
-    // console.log(this.state.countDown)
     this.setState({countDown: this.state.countDown - 1});
     if (this.state.countDown === 1) {
       //CREATE GAME ROOM
@@ -88,10 +77,11 @@ export default class ChallengeModal extends React.Component {
           score: 0,
           timestamp: timestamp,
           drawable: true
-        }
+        },
+        timestamp: timestamp
       })
       let roomKey = newGameRoom.key;
-      database.gameRooms.child(this.state.friendId).child('blitzRoom').set(roomKey);
+      database.gameRooms.child(this.props.friendId).child('blitzRoom').set(roomKey);
       database.gameRooms.child(this.props.fbId).child('blitzRoom').set(roomKey);
       this.setState({roomKey});
 
@@ -103,23 +93,6 @@ export default class ChallengeModal extends React.Component {
     }
   }
 
-  listenForResponse(friendId) {
-    database.gameRooms.child(friendId).on('value', snap => {
-      let friendResponse = snap.val();
-      if (friendResponse.requesting === false && this.state.isMounted) {
-        this.clearCountdown();
-        this.setState({
-          rejected: true,
-          accepted: false,
-          waitingForResponse: false,
-          countDown: 5
-        })
-      } else if (friendResponse.accepted === true && this.state.isMounted && !this.state.accepted) {
-        this.startCountdown();
-        this.setState({accepted: true})
-      }
-    })
-  }
 
   startCountdown() {
     this.timer = setInterval(this.tick.bind(this), 1000);
@@ -142,14 +115,22 @@ export default class ChallengeModal extends React.Component {
   }
 
   cancelChallenge() {
-    this.resetRequestStatus();
-    this.props.close();
+    if (this.state.accepted === true) {
+      this.resetRequestStatus();
+    }
+    this.clearCountdown();
+    this.setState({
+      isMounted: false
+    }, () => {
+      this.resetRequestStatus();
+      this.props.close();
+    });
   }
 
   resetRequestStatus() {
-    if (this.state.friendId) {
-      database.gameRooms.child(this.state.friendId).child('requesting').set(false);
-      database.gameRooms.child(this.state.friendId).child('accepted').set(false);
+    if (this.props.friendId) {
+      database.gameRooms.child(this.props.friendId).child('requesting').set(false);
+      database.gameRooms.child(this.props.friendId).child('accepted').set(false);
     }
   }
 
@@ -196,32 +177,33 @@ export default class ChallengeModal extends React.Component {
             </View>
           ) : (null)}
           {!this.state.waitingForResponse ? (
-            !this.state.rejected ? (
-              <View style={[styles.box, {flex: 3}]}>
-                {this.state.friendsOnline.map((friend, i) => {
-                  let name = friend.name.slice(0, 10);
-                  let space = name.indexOf(' ');
-                  if (space > 0) { name = name.slice(0, space) };
-                  return (
-                    <View style={[styles.box, {flexDirection: 'row'}]} key={i}>
-                      <View style={styles.box}>
-                        <Image
-                          source={{uri: friend.profilePic}}
-                          style={{width: 40, height: 40, resizeMode: 'contain'}}
-                        />
-                      </View>
-                      <View style={styles.box}>
-                        <TouchableOpacity onPress={() => this.challengeFriend(friend)}>
-                          <Text style={styles.font}>
-                            {name}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )
-                })}
-              </View>
-            ) : (null)
+            // !this.state.rejected ? (
+            //   <View style={[styles.box, {flex: 3}]}>
+            //     {this.state.friendsOnline.map((friend, i) => {
+            //       let name = friend.name.slice(0, 10);
+            //       let space = name.indexOf(' ');
+            //       if (space > 0) { name = name.slice(0, space) };
+            //       return (
+            //         <View style={[styles.box, {flexDirection: 'row'}]} key={i}>
+            //           <View style={styles.box}>
+            //             <Image
+            //               source={{uri: friend.profilePic}}
+            //               style={{width: 40, height: 40, resizeMode: 'contain'}}
+            //             />
+            //           </View>
+            //           <View style={styles.box}>
+            //             <TouchableOpacity onPress={() => this.challengeFriend(friend)}>
+            //               <Text style={styles.font}>
+            //                 {name}
+            //               </Text>
+            //             </TouchableOpacity>
+            //           </View>
+            //         </View>
+            //       )
+            //     })}
+            //   </View>
+            // ) : (null)
+            null
           ) : (
             <View style={[styles.box, {flex: 3}]}>
               <View style={styles.box}>

@@ -13,7 +13,8 @@ export default class HereComesANewChallengerModal extends React.Component {
       fontLoaded: false,
       accepted: false,
       countdown: 5,
-      fbId: null
+      fbId: null,
+      isMounted: false
     }
   }
 
@@ -25,7 +26,10 @@ export default class HereComesANewChallengerModal extends React.Component {
     });
     this.setState({
       fontLoaded: true,
-      fbId: fbId
+      fbId: fbId,
+      isMounted: true
+    }, () => {
+      this.listenForCancel();
     })
   }
 
@@ -54,15 +58,30 @@ export default class HereComesANewChallengerModal extends React.Component {
 
     this.setState({
       accepted: true
+    }, () => {
+      this.interval = setInterval(this.tick.bind(this), 1000);
     })
     database.gameRooms.child(this.state.fbId).child('accepted').set(true);
 
-    this.interval = setInterval(this.tick.bind(this), 1000);
   }
 
   cancelChallenge() {
     clearInterval(this.interval);
     this.props.close('cancelChallenge', this.state.fbId);
+  }
+
+  listenForCancel() {
+    database.gameRooms.child(this.state.fbId).child('requesting').on('value', snap => {
+      let requestStatus = snap.val();
+      if (requestStatus === false && this.state.isMounted) {
+        if (this.interval) {
+          clearInterval(this.interval);
+        }
+        this.setState({
+          isMounted: false
+        }, () => this.props.close())
+      }
+    })
   }
 
 
